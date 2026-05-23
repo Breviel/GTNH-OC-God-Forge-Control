@@ -1,7 +1,7 @@
 -- Component Discover Lib
 -- Author: Navatusein
 -- License: MIT
--- Version: 1.2
+-- Version: 1.3
 
 local component = require("component")
 
@@ -44,6 +44,11 @@ end
 local componentDiscover = {}
 
 ---Discover component proxy by address part
+---In newer versions of GTNH mods (AE2, AE2FC, OC) the ME Dual Interface block
+---exposes two separate OC components ("me_interface" and "fluid_interface") each
+---with a distinct address. If the address provided resolves to a component whose
+---type does not match the expected type, this function falls back to a
+---type-agnostic lookup so the correct proxy is still returned.
 ---@generic T
 ---@param address string
 ---@param name string
@@ -53,10 +58,18 @@ function componentDiscover.discoverProxy(address, name, type)
   local fullAddress = component.get(address, type)
 
   if fullAddress == nil then
+    -- Fallback: look up the component without a type constraint.
+    -- This handles cases where the ME Dual Interface registers under a
+    -- different component type name (e.g. "fluid_interface") in newer
+    -- versions of AE2FluidCraft-Rework / Applied-Energistics-2-Unofficial.
+    fullAddress = component.get(address)
+  end
+
+  if fullAddress == nil then
     error("Invalid address of "..type.." "..name)
   end
 
-  return component.proxy(fullAddress, type)
+  return component.proxy(fullAddress)
 end
 
 ---Discover gt_machine by name
