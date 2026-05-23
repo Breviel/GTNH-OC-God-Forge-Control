@@ -387,10 +387,25 @@ function heliofusionExoticizerController:new(
   ---@private
   function obj:encodePattern(outputs)
     local index = 1
-    local count = 0
+
+    -- In magmatter mode the plasma count is derived from the difference between
+    -- the two special fluids. Pre-check both are present before iterating so we
+    -- can give a clear error instead of a nil-index crash.
+    if self.magmatterMode == true then
+      if outputs["Spatially Enlarged Fluid"] == nil then
+        event.push("log_warning", "encodePattern: 'Spatially Enlarged Fluid' not found in outputs")
+        return false, 0
+      end
+      if outputs["Tachyon Rich Temporal Fluid"] == nil then
+        event.push("log_warning", "encodePattern: 'Tachyon Rich Temporal Fluid' not found in outputs")
+        return false, 0
+      end
+    end
 
     for key, value in pairs(outputs) do
-      if self.magmatterMode == true then 
+      local count = 0
+
+      if self.magmatterMode == true then
         if key == "Spatially Enlarged Fluid" or key == "Tachyon Rich Temporal Fluid" then
           count = value.count
         else
