@@ -375,8 +375,9 @@ function heliofusionExoticizerController:new(
       self.inputMeInterfaceProxy.clearInterfacePatternInput(1, key)
     end
 
-    self.inputMeInterfaceProxy.setInterfacePatternOutput(1, self.database.address, 1, 1, 1)
-    self.inputMeInterfaceProxy.setInterfacePatternInput(1, self.database.address, 1, 1, 1)
+    -- Signature: setInterfacePatternOutput(slot, index, database_address, entry, size)
+    self.inputMeInterfaceProxy.setInterfacePatternOutput(1, 1, self.database.address, 1, 1)
+    self.inputMeInterfaceProxy.setInterfacePatternInput(1, 1, self.database.address, 1, 1)
   end
 
   ---Encode fake pattern with the right plasmas
@@ -400,7 +401,8 @@ function heliofusionExoticizerController:new(
       end
 
       if self.plasmaList[value.label] ~= nil then
-        self.inputMeInterfaceProxy.setInterfacePatternInput(1, self.database.address, self.plasmaList[value.label].databaseIndex, count, index)
+        -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
+        self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
       else
         return false, index - 1
       end
