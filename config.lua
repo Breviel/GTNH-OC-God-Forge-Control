@@ -34,6 +34,7 @@ local config = {
 
   controller = heliofusionExoticizerController:newFormConfig({
     magmatterMode = false, -- Enable mode of production magmatter.
+    ocPatternEditorAddress = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- Address of OC Pattern Editor.
     outputMeInterfaceAddress = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- Address of me interface which connected to output AE.
     inputMeInterfaceAddress = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- Address of me interface which connected to input AE.
     transposerAddress = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", -- Address of transposer.
