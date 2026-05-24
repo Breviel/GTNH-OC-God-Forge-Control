@@ -248,7 +248,9 @@ function heliofusionExoticizerController:new(
         return
       end
 
-      local expectedCount = self.magmatterMode == true and 3 or 7
+      -- In magmatter mode only the 1 plasma input is written (the 2 special fluids are
+      -- measurement signals and are skipped). In gluon mode all 7 outputs become inputs.
+      local expectedCount = self.magmatterMode == true and 1 or 7
 
       if outputsCount ~= expectedCount then
         self.stateMachine.data.errorMessage = "Number of objects ("..outputsCount..") doesn't match the expected ("..expectedCount..")"
@@ -300,7 +302,7 @@ function heliofusionExoticizerController:new(
 
       local diff = math.ceil(computer.uptime() - self.stateMachine.data.waitEndTime)
 
-      if itemsCount ~= 0 then 
+      if itemsCount ~= 0 then
         while self:tryCancelFakeRecipe() == false do
           os.sleep(0.1)
         end
@@ -369,12 +371,6 @@ function heliofusionExoticizerController:new(
       error("No pattern in Interface")
     end
 
-    local outputCount = 0
-    local inputCount = 0
-    for _ in pairs(pattern.outputs or {}) do outputCount = outputCount + 1 end
-    for _ in pairs(pattern.inputs or {}) do inputCount = inputCount + 1 end
-    event.push("log_info", "clearPattern: before clear - outputs="..outputCount.." inputs="..inputCount)
-
     for key, _ in pairs(pattern.outputs or {}) do
       self.inputMeInterfaceProxy.clearInterfacePatternOutput(1, key)
     end
@@ -386,13 +382,6 @@ function heliofusionExoticizerController:new(
     -- Signature: setInterfacePatternOutput(slot, index, database_address, entry, size)
     self.inputMeInterfaceProxy.setInterfacePatternOutput(1, 1, self.database.address, 1, 1)
     self.inputMeInterfaceProxy.setInterfacePatternInput(1, 1, self.database.address, 1, 1)
-
-    local patternAfter = self.inputMeInterfaceProxy.getInterfacePattern(1)
-    local outputCountAfter = 0
-    local inputCountAfter = 0
-    for _ in pairs((patternAfter or {}).outputs or {}) do outputCountAfter = outputCountAfter + 1 end
-    for _ in pairs((patternAfter or {}).inputs or {}) do inputCountAfter = inputCountAfter + 1 end
-    event.push("log_info", "clearPattern: after set - outputs="..outputCountAfter.." inputs="..inputCountAfter)
   end
 
   ---Encode fake pattern with the right plasmas
@@ -403,12 +392,10 @@ function heliofusionExoticizerController:new(
   function obj:encodePattern(outputs)
     local index = 1
 
-    event.push("log_info", "encodePattern: magmatterMode="..tostring(self.magmatterMode))
-
-    -- In magmatter mode the plasma count is derived from the difference between
-    -- the two special fluids. Pre-check both are present before iterating so we
-    -- can give a clear error instead of a nil-index crash.
     if self.magmatterMode == true then
+      -- The two special fluids are measurement signals only — they indicate how much
+      -- plasma the exoticizer consumed but are not inputs to the recipe themselves.
+      -- Pre-check both are present so we can compute the plasma quantity.
       if outputs["Spatially Enlarged Fluid"] == nil then
         event.push("log_warning", "encodePattern: 'Spatially Enlarged Fluid' not found in outputs")
         return false, 0
@@ -417,36 +404,36 @@ function heliofusionExoticizerController:new(
         event.push("log_warning", "encodePattern: 'Tachyon Rich Temporal Fluid' not found in outputs")
         return false, 0
       end
-      event.push("log_info", "encodePattern: SpatialFluid="..tostring(outputs["Spatially Enlarged Fluid"].count).." TemporalFluid="..tostring(outputs["Tachyon Rich Temporal Fluid"].count))
-    end
 
-    for key, value in pairs(outputs) do
-      local count = 0
+      local plasmaCount = math.abs(outputs["Spatially Enlarged Fluid"].count - outputs["Tachyon Rich Temporal Fluid"].count) * 144
 
-      if self.magmatterMode == true then
-        if key == "Spatially Enlarged Fluid" or key == "Tachyon Rich Temporal Fluid" then
-          count = value.count
-        else
-          count = math.abs(outputs["Spatially Enlarged Fluid"].count - outputs["Tachyon Rich Temporal Fluid"].count) * 144
+      -- Write only the actual plasma input(s), skipping the two measurement fluids
+      for key, value in pairs(outputs) do
+        if key ~= "Spatially Enlarged Fluid" and key ~= "Tachyon Rich Temporal Fluid" then
+          if self.plasmaList[value.label] == nil then
+            return false, index - 1
+          end
+
+          -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
+          self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, plasmaCount)
+          index = index + 1
         end
-      else
-        count = value.count * (value.isLiquid == true and 1000 or 144)
       end
+    else
+      for key, value in pairs(outputs) do
+        local count = value.count * (value.isLiquid == true and 1000 or 144)
 
-      event.push("log_info", "encodePattern: slot="..index.." key="..tostring(key).." label="..tostring(value.label).." count="..tostring(count).." isLiquid="..tostring(value.isLiquid).." inPlasmaList="..tostring(self.plasmaList[value.label] ~= nil))
+        if self.plasmaList[value.label] ~= nil then
+          -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
+          self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
+        else
+          return false, index - 1
+        end
 
-      if self.plasmaList[value.label] ~= nil then
-        -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
-        self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
-      else
-        event.push("log_warning", "encodePattern: UNKNOWN label="..tostring(value.label).." - returning false at index "..index)
-        return false, index - 1
+        index = index + 1
       end
-
-      index = index + 1
     end
 
-    event.push("log_info", "encodePattern: done, total slots written="..(index - 1))
     return true, index - 1
   end
 
