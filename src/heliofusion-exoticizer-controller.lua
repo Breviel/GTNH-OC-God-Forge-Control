@@ -529,9 +529,18 @@ function heliofusionExoticizerController:new(
 	end
 
   ---Request fake pattern
+  --- Returns false (instead of crashing) if AE2 does not expose the fake recipe
+  --- as craftable — e.g. because the pattern is still invalid.
   ---@private
   function obj:requestFakeRecipe()
-    local recipe = obj.inputMeInterfaceProxy.getCraftables({label = self.fakeRecipeName})[1]
+    local craftables = self.inputMeInterfaceProxy.getCraftables({label = self.fakeRecipeName})
+    local recipe = craftables and craftables[1]
+
+    if recipe == nil then
+      event.push("log_warning", "requestFakeRecipe: '"..self.fakeRecipeName.."' not found in craftables (pattern may be invalid)")
+      return false
+    end
+
     local craft = recipe.request(1)
 
     while craft.isComputing() == true do
@@ -564,7 +573,7 @@ function heliofusionExoticizerController:new(
     return true
   end
 
-  ---Check if craft of the fake pattern is failed
+  ---Check if craft of the fake pattern is active on any CPU
   ---@private
   function obj:hasFakeRecipe()
     local cpus = self.inputMeInterfaceProxy.getCpus()
