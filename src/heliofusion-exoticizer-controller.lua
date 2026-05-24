@@ -6,6 +6,7 @@ local stateMachineLib = require("lib.state-machine-lib")
 local componentDiscoverLib = require("lib.component-discover-lib")
 
 ---@class HeliofusionExoticizerControllerConfig
+---@field ocPatternEditorAddress string
 ---@field magmatterMode boolean
 ---@field outputMeInterfaceAddress string
 ---@field inputMeInterfaceAddress string
@@ -133,6 +134,7 @@ local heliofusionExoticizerController = {}
 function heliofusionExoticizerController:newFormConfig(config)
   return self:new(
     config.magmatterMode,
+    config.ocPatternEditorAddress,
     config.outputMeInterfaceAddress,
     config.inputMeInterfaceAddress,
     config.transposerAddress,
@@ -145,6 +147,7 @@ end
 
 ---Crate new HeliofusionExoticizerController object
 ---@param magmatterMode boolean
+---@param ocPatternEditorAddress string
 ---@param outputMeInterfaceAddress string
 ---@param inputMeInterfaceAddress string
 ---@param transposerAddress string
@@ -155,6 +158,7 @@ end
 ---@return HeliofusionExoticizerController
 function heliofusionExoticizerController:new(
   magmatterMode,
+  ocPatternEditorAddress,
   outputMeInterfaceAddress,
   inputMeInterfaceAddress,
   transposerAddress,
@@ -168,6 +172,7 @@ function heliofusionExoticizerController:new(
 
   obj.outputMeInterfaceProxy = nil
   obj.inputMeInterfaceProxy = nil
+  obj.ocPatternEditorProxy = nil
   obj.transposerProxy = nil
   obj.redstoneIoProxy = nil
 
@@ -190,6 +195,7 @@ function heliofusionExoticizerController:new(
 
     self.outputMeInterfaceProxy = componentDiscoverLib.discoverProxy(outputMeInterfaceAddress, "Output Me Interface", "me_interface")
     self.inputMeInterfaceProxy = componentDiscoverLib.discoverProxy(inputMeInterfaceAddress, "Input Me Interface", "me_interface")
+    self.ocPatternEditorProxy = componentDiscoverLib.discoverProxy(ocPatternEditorAddress, "OC Pattern Editor", "oc_pattern_editor")
     self.transposerProxy = componentDiscoverLib.discoverProxy(transposerAddress, "Transposer", "transposer")
     self.redstoneIoProxy = componentDiscoverLib.discoverProxy(redstoneIoAddress, "Redstone io", "redstone")
 
@@ -248,7 +254,7 @@ function heliofusionExoticizerController:new(
         return
       end
 
-      local expectedCount = self.magmatterMode == true and 3 or 7
+      local expectedCount = self.magmatterMode == true and 1 or 7
 
       if outputsCount ~= expectedCount then
         self.stateMachine.data.errorMessage = "Number of objects ("..outputsCount..") doesn't match the expected ("..expectedCount..")"
@@ -363,35 +369,18 @@ function heliofusionExoticizerController:new(
   ---Clear inputs and outputs of the fake pattern
   ---@private
   function obj:clearPattern()
-    local pattern = self.inputMeInterfaceProxy.getInterfacePattern(1)
-
-    if pattern == nil then
-      error("No pattern in Interface")
+    for i = 1, 9 do
+      pcall(function() self.ocPatternEditorProxy.clearInterfacePatternInput(1, i) end)
+    end
+    for i = 1, 3 do
+      pcall(function() self.ocPatternEditorProxy.clearInterfacePatternOutput(1, i) end)
     end
 
-    for key, _ in pairs(pattern.outputs or {}) do
-      self.inputMeInterfaceProxy.clearInterfacePatternOutput(1, key)
-    end
-
-    for key, _ in pairs(pattern.inputs or {}) do
-      self.inputMeInterfaceProxy.clearInterfacePatternInput(1, key)
-    end
-
-    -- Signature: setInterfacePatternOutput(slot, index, database_address, entry, size)
-    self.inputMeInterfaceProxy.setInterfacePatternOutput(1, 1, self.database.address, 1, 1)
-    self.inputMeInterfaceProxy.setInterfacePatternInput(1, 1, self.database.address, 1, 1)
+    self.ocPatternEditorProxy.setInterfacePatternItemOutput(1, self.database.address, 1, 1, 1)
+    self.ocPatternEditorProxy.setInterfacePatternItemInput(1, self.database.address, 1, 1, 1)
   end
 
   ---Encode fake pattern with the right plasmas
-  ---
-  --- Magmatter mode: the recipe always has exactly 3 outputs in the output subnet:
-  ---   - 1 exotic dust (e.g. Draconium Dust) — maps to its plasma form
-  ---   - Spatially Enlarged Fluid (Molten Space) — direct real input
-  ---   - Tachyon Rich Temporal Fluid (Molten Time) — direct real input
-  --- The plasma quantity for the exotic dust is derived from (spaceAmount - timeAmount) * 144.
-  --- All three are written as pattern inputs.
-  ---
-  --- Gluon mode: up to 7 random items/fluids, each mapped to their plasma form.
   ---@param outputs table<string, OutputItem>
   ---@return boolean
   ---@return integer
@@ -414,34 +403,38 @@ function heliofusionExoticizerController:new(
       local plasmaCount = math.abs(spaceAmount - timeAmount) * 144
 
       for key, value in pairs(outputs) do
-        local count = 0
-
-        if key == "Spatially Enlarged Fluid" or key == "Tachyon Rich Temporal Fluid" then
-          -- These are the actual Molten Space / Molten Time fluid inputs, written as-is in mB
-          count = value.count
-        else
-          -- The exotic dust becomes a plasma fluid input with quantity derived from space-time diff
-          count = plasmaCount
+        if key ~= "Spatially Enlarged Fluid" and key ~= "Tachyon Rich Temporal Fluid" then
+          if self.plasmaList[value.label] == nil then
+            return false, index - 1
+          end
+          self.ocPatternEditorProxy.setInterfacePatternFluidInput(
+            1, self.database.address,
+            self.plasmaList[value.label].databaseIndex,
+            plasmaCount, index
+          )
+          index = index + 1
         end
-
-        if self.plasmaList[value.label] == nil then
-          event.push("log_warning", "encodePattern: unknown label="..tostring(value.label))
-          return false, index - 1
-        end
-
-        -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
-        self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
-        index = index + 1
       end
     else
       for key, value in pairs(outputs) do
         local count = value.count * (value.isLiquid == true and 1000 or 144)
 
-        if self.plasmaList[value.label] ~= nil then
-          -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
-          self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
-        else
+        if self.plasmaList[value.label] == nil then
           return false, index - 1
+        end
+
+        if value.isLiquid then
+          self.ocPatternEditorProxy.setInterfacePatternFluidInput(
+            1, self.database.address,
+            self.plasmaList[value.label].databaseIndex,
+            count, index
+          )
+        else
+          self.ocPatternEditorProxy.setInterfacePatternItemInput(
+            1, self.database.address,
+            self.plasmaList[value.label].databaseIndex,
+            count, index
+          )
         end
 
         index = index + 1
