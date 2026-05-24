@@ -6,7 +6,6 @@ local stateMachineLib = require("lib.state-machine-lib")
 local componentDiscoverLib = require("lib.component-discover-lib")
 
 ---@class HeliofusionExoticizerControllerConfig
----@field ocPatternEditorAddress string
 ---@field magmatterMode boolean
 ---@field outputMeInterfaceAddress string
 ---@field inputMeInterfaceAddress string
@@ -134,7 +133,6 @@ local heliofusionExoticizerController = {}
 function heliofusionExoticizerController:newFormConfig(config)
   return self:new(
     config.magmatterMode,
-    config.ocPatternEditorAddress,
     config.outputMeInterfaceAddress,
     config.inputMeInterfaceAddress,
     config.transposerAddress,
@@ -147,7 +145,6 @@ end
 
 ---Crate new HeliofusionExoticizerController object
 ---@param magmatterMode boolean
----@param ocPatternEditorAddress string
 ---@param outputMeInterfaceAddress string
 ---@param inputMeInterfaceAddress string
 ---@param transposerAddress string
@@ -158,7 +155,6 @@ end
 ---@return HeliofusionExoticizerController
 function heliofusionExoticizerController:new(
   magmatterMode,
-  ocPatternEditorAddress,
   outputMeInterfaceAddress,
   inputMeInterfaceAddress,
   transposerAddress,
@@ -172,7 +168,6 @@ function heliofusionExoticizerController:new(
 
   obj.outputMeInterfaceProxy = nil
   obj.inputMeInterfaceProxy = nil
-  obj.ocPatternEditorProxy = nil
   obj.transposerProxy = nil
   obj.redstoneIoProxy = nil
 
@@ -193,9 +188,8 @@ function heliofusionExoticizerController:new(
   function obj:init()
     self.fakeRecipeName = "Fake recipe "..self.database.address:sub(0, 8)
 
-    self.outputMeInterfaceProxy = componentDiscoverLib.discoverProxy(outputMeInterfaceAddress, "Output Me Interface", "me_interface")
-    self.inputMeInterfaceProxy = componentDiscoverLib.discoverProxy(inputMeInterfaceAddress, "Input Me Interface", "me_interface")
-    self.ocPatternEditorProxy = componentDiscoverLib.discoverProxy(ocPatternEditorAddress, "OC Pattern Editor", "oc_pattern_editor")
+    self.outputMeInterfaceProxy = componentDiscoverLib.discoverProxy(outputMeInterfaceAddress, "Output Me Interface", "fluid_interface")
+    self.inputMeInterfaceProxy = componentDiscoverLib.discoverProxy(inputMeInterfaceAddress, "Input Me Interface", "fluid_interface")
     self.transposerProxy = componentDiscoverLib.discoverProxy(transposerAddress, "Transposer", "transposer")
     self.redstoneIoProxy = componentDiscoverLib.discoverProxy(redstoneIoAddress, "Redstone io", "redstone")
 
@@ -254,7 +248,7 @@ function heliofusionExoticizerController:new(
         return
       end
 
-      local expectedCount = self.magmatterMode == true and 1 or 7
+      local expectedCount = self.magmatterMode == true and 3 or 7
 
       if outputsCount ~= expectedCount then
         self.stateMachine.data.errorMessage = "Number of objects ("..outputsCount..") doesn't match the expected ("..expectedCount..")"
@@ -268,6 +262,7 @@ function heliofusionExoticizerController:new(
     self.stateMachine.states.clearOutputAe = self.stateMachine:createState("Clear Output AE")
     self.stateMachine.states.clearOutputAe.init = function()
       self:clearAe()
+      os.sleep(2)
       self.stateMachine:setState(self.stateMachine.states.requestFakePattern)
     end
 
@@ -326,7 +321,7 @@ function heliofusionExoticizerController:new(
       end
 
       event.push("log_error", self.stateMachine.data.errorMessage)
-      event.push("log_info","&red;Press Enter to confirm")
+      event.push("log_info", "&red;Press Enter to confirm")
 
       self.stateMachine.data.errorMessage = nil
     end
@@ -369,15 +364,23 @@ function heliofusionExoticizerController:new(
   ---Clear inputs and outputs of the fake pattern
   ---@private
   function obj:clearPattern()
-    for i = 1, 9 do
-      pcall(function() self.ocPatternEditorProxy.clearInterfacePatternInput(1, i) end)
-    end
-    for i = 1, 3 do
-      pcall(function() self.ocPatternEditorProxy.clearInterfacePatternOutput(1, i) end)
+    local pattern = self.inputMeInterfaceProxy.getInterfacePattern(1)
+
+    if pattern == nil then
+      error("No pattern in Interface")
     end
 
-    self.ocPatternEditorProxy.setInterfacePatternItemOutput(1, self.database.address, 1, 1, 1)
-    self.ocPatternEditorProxy.setInterfacePatternItemInput(1, self.database.address, 1, 1, 1)
+    for key, _ in pairs(pattern.outputs) do
+      self.inputMeInterfaceProxy.clearInterfacePatternOutput(1, key)
+    end
+
+    for key, _ in pairs(pattern.inputs) do
+      self.inputMeInterfaceProxy.clearInterfacePatternInput(1, key)
+    end
+
+    -- (patternSlot, craftingSlot, dbAddress, dbSlot, count)
+    self.inputMeInterfaceProxy.setInterfacePatternOutput(1, 1, self.database.address, 1, 1)
+    self.inputMeInterfaceProxy.setInterfacePatternInput(1, 1, self.database.address, 1, 1)
   end
 
   ---Encode fake pattern with the right plasmas
@@ -387,58 +390,31 @@ function heliofusionExoticizerController:new(
   ---@private
   function obj:encodePattern(outputs)
     local index = 1
+    local count = 0
 
-    if self.magmatterMode == true then
-      if outputs["Spatially Enlarged Fluid"] == nil then
-        event.push("log_warning", "encodePattern: 'Spatially Enlarged Fluid' not found in outputs")
-        return false, 0
-      end
-      if outputs["Tachyon Rich Temporal Fluid"] == nil then
-        event.push("log_warning", "encodePattern: 'Tachyon Rich Temporal Fluid' not found in outputs")
-        return false, 0
-      end
-
-      local spaceAmount = outputs["Spatially Enlarged Fluid"].count
-      local timeAmount = outputs["Tachyon Rich Temporal Fluid"].count
-      local plasmaCount = math.abs(spaceAmount - timeAmount) * 144
-
-      for key, value in pairs(outputs) do
-        if key ~= "Spatially Enlarged Fluid" and key ~= "Tachyon Rich Temporal Fluid" then
-          if self.plasmaList[value.label] == nil then
-            return false, index - 1
-          end
-          self.ocPatternEditorProxy.setInterfacePatternFluidInput(
-            1, self.database.address,
-            self.plasmaList[value.label].databaseIndex,
-            plasmaCount, index
-          )
-          index = index + 1
-        end
-      end
-    else
-      for key, value in pairs(outputs) do
-        local count = value.count * (value.isLiquid == true and 1000 or 144)
-
-        if self.plasmaList[value.label] == nil then
-          return false, index - 1
-        end
-
-        if value.isLiquid then
-          self.ocPatternEditorProxy.setInterfacePatternFluidInput(
-            1, self.database.address,
-            self.plasmaList[value.label].databaseIndex,
-            count, index
-          )
+    for key, value in pairs(outputs) do
+      if self.magmatterMode == true then
+        if key == "Spatially Enlarged Fluid" or key == "Tachyon Rich Temporal Fluid" then
+          count = value.count
         else
-          self.ocPatternEditorProxy.setInterfacePatternItemInput(
-            1, self.database.address,
-            self.plasmaList[value.label].databaseIndex,
-            count, index
-          )
+          count = math.max(1, math.abs(outputs["Spatially Enlarged Fluid"].count - outputs["Tachyon Rich Temporal Fluid"].count) * 144)
         end
-
-        index = index + 1
+      else
+        count = value.count * (value.isLiquid == true and 1000 or 144)
       end
+
+      if self.plasmaList[value.label] ~= nil then
+        self.inputMeInterfaceProxy.setInterfacePatternInput(
+          1,
+          index,
+          { name = self.plasmaList[value.label].fluid, size = count },
+          "fluid"
+        )
+      else
+        return false, index - 1
+      end
+
+      index = index + 1
     end
 
     return true, index - 1
@@ -475,13 +451,9 @@ function heliofusionExoticizerController:new(
     end
 
     for _, value in pairs(liquids) do
-      local label = value.label:match("^(.-)%s?[Gg]?[Aa]?[Ss]?$")
+      local label = value.label:match("^(.-)%s[Gg][Aa][Ss]$") or value.label
 
-      if label == nil then
-        outputs[value.label] = {label = value.label, count = value.amount, isLiquid = true}
-      else
-        outputs[label] = {label = label, count = value.amount, isLiquid = true}
-      end
+      outputs[label] = {label = label, count = value.amount, isLiquid = true}
 
       count = count + 1
     end
@@ -489,7 +461,7 @@ function heliofusionExoticizerController:new(
     return outputs, count
   end
 
-  ---Clear output ae by move items in input ae
+  ---Clear output ae by moving items to input ae
   ---@private
   function obj:clearAe()
     for i = 1, 3, 1 do
@@ -509,7 +481,7 @@ function heliofusionExoticizerController:new(
   ---@return integer
   ---@private
   function obj:getFreeCpusCount()
-		local cpus = self.inputMeInterfaceProxy.getCpus()
+    local cpus = self.inputMeInterfaceProxy.getCpus()
     local freeCpusCount = 0
 
     for _, value in pairs(cpus) do
@@ -519,11 +491,9 @@ function heliofusionExoticizerController:new(
     end
 
     return freeCpusCount
-	end
+  end
 
   ---Request fake pattern
-  --- Returns false (instead of crashing) if AE2 does not expose the fake recipe
-  --- as craftable — e.g. because the pattern is still invalid.
   ---@private
   function obj:requestFakeRecipe()
     local craftables = self.inputMeInterfaceProxy.getCraftables({label = self.fakeRecipeName})
@@ -543,7 +513,7 @@ function heliofusionExoticizerController:new(
     return craft.hasFailed() == false
   end
 
-  ---Try cancel craft of the faker pattern
+  ---Try cancel craft of the fake pattern
   ---@private
   function obj:tryCancelFakeRecipe()
     local cpus = self.inputMeInterfaceProxy.getCpus()
