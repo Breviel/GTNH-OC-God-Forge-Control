@@ -238,6 +238,8 @@ function heliofusionExoticizerController:new(
         event.push("log_warning", "Successfully went to Encode Fake Pattern state after a long Idle state")
       end
 
+      self:clearPattern()
+
       local success, outputsCount = self:encodePattern(self.stateMachine.data.outputs)
 
       if success == false then
