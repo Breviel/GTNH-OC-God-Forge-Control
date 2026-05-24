@@ -367,11 +367,11 @@ function heliofusionExoticizerController:new(
       error("No pattern in Interface")
     end
 
-    for key, _ in pairs(pattern.outputs) do
+    for key, _ in pairs(pattern.outputs or {}) do
       self.inputMeInterfaceProxy.clearInterfacePatternOutput(1, key)
     end
 
-    for key, _ in pairs(pattern.inputs) do
+    for key, _ in pairs(pattern.inputs or {}) do
       self.inputMeInterfaceProxy.clearInterfacePatternInput(1, key)
     end
 
