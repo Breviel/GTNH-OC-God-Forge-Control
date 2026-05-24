@@ -248,9 +248,7 @@ function heliofusionExoticizerController:new(
         return
       end
 
-      -- In magmatter mode only the 1 plasma input is written (the 2 special fluids are
-      -- measurement signals and are skipped). In gluon mode all 7 outputs become inputs.
-      local expectedCount = self.magmatterMode == true and 1 or 7
+      local expectedCount = self.magmatterMode == true and 3 or 7
 
       if outputsCount ~= expectedCount then
         self.stateMachine.data.errorMessage = "Number of objects ("..outputsCount..") doesn't match the expected ("..expectedCount..")"
@@ -342,7 +340,7 @@ function heliofusionExoticizerController:new(
     end
   end
 
-  ---Fill database witch right plasmas
+  ---Fill database with right plasmas
   ---@private
   function obj:fillDatabase(recipe)
     self.database.set(1, "minecraft:paper", 0, "{display:{Name:\""..self.fakeRecipeName.."\"}}")
@@ -385,6 +383,15 @@ function heliofusionExoticizerController:new(
   end
 
   ---Encode fake pattern with the right plasmas
+  ---
+  --- Magmatter mode: the recipe always has exactly 3 outputs in the output subnet:
+  ---   - 1 exotic dust (e.g. Draconium Dust) — maps to its plasma form
+  ---   - Spatially Enlarged Fluid (Molten Space) — direct real input
+  ---   - Tachyon Rich Temporal Fluid (Molten Time) — direct real input
+  --- The plasma quantity for the exotic dust is derived from (spaceAmount - timeAmount) * 144.
+  --- All three are written as pattern inputs.
+  ---
+  --- Gluon mode: up to 7 random items/fluids, each mapped to their plasma form.
   ---@param outputs table<string, OutputItem>
   ---@return boolean
   ---@return integer
@@ -393,9 +400,6 @@ function heliofusionExoticizerController:new(
     local index = 1
 
     if self.magmatterMode == true then
-      -- The two special fluids are measurement signals only — they indicate how much
-      -- plasma the exoticizer consumed but are not inputs to the recipe themselves.
-      -- Pre-check both are present so we can compute the plasma quantity.
       if outputs["Spatially Enlarged Fluid"] == nil then
         event.push("log_warning", "encodePattern: 'Spatially Enlarged Fluid' not found in outputs")
         return false, 0
@@ -405,19 +409,29 @@ function heliofusionExoticizerController:new(
         return false, 0
       end
 
-      local plasmaCount = math.abs(outputs["Spatially Enlarged Fluid"].count - outputs["Tachyon Rich Temporal Fluid"].count) * 144
+      local spaceAmount = outputs["Spatially Enlarged Fluid"].count
+      local timeAmount = outputs["Tachyon Rich Temporal Fluid"].count
+      local plasmaCount = math.abs(spaceAmount - timeAmount) * 144
 
-      -- Write only the actual plasma input(s), skipping the two measurement fluids
       for key, value in pairs(outputs) do
-        if key ~= "Spatially Enlarged Fluid" and key ~= "Tachyon Rich Temporal Fluid" then
-          if self.plasmaList[value.label] == nil then
-            return false, index - 1
-          end
+        local count = 0
 
-          -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
-          self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, plasmaCount)
-          index = index + 1
+        if key == "Spatially Enlarged Fluid" or key == "Tachyon Rich Temporal Fluid" then
+          -- These are the actual Molten Space / Molten Time fluid inputs, written as-is in mB
+          count = value.count
+        else
+          -- The exotic dust becomes a plasma fluid input with quantity derived from space-time diff
+          count = plasmaCount
         end
+
+        if self.plasmaList[value.label] == nil then
+          event.push("log_warning", "encodePattern: unknown label="..tostring(value.label))
+          return false, index - 1
+        end
+
+        -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
+        self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
+        index = index + 1
       end
     else
       for key, value in pairs(outputs) do
