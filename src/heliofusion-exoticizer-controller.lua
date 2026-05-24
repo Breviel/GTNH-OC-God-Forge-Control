@@ -369,6 +369,12 @@ function heliofusionExoticizerController:new(
       error("No pattern in Interface")
     end
 
+    local outputCount = 0
+    local inputCount = 0
+    for _ in pairs(pattern.outputs or {}) do outputCount = outputCount + 1 end
+    for _ in pairs(pattern.inputs or {}) do inputCount = inputCount + 1 end
+    event.push("log_info", "clearPattern: before clear - outputs="..outputCount.." inputs="..inputCount)
+
     for key, _ in pairs(pattern.outputs or {}) do
       self.inputMeInterfaceProxy.clearInterfacePatternOutput(1, key)
     end
@@ -380,6 +386,13 @@ function heliofusionExoticizerController:new(
     -- Signature: setInterfacePatternOutput(slot, index, database_address, entry, size)
     self.inputMeInterfaceProxy.setInterfacePatternOutput(1, 1, self.database.address, 1, 1)
     self.inputMeInterfaceProxy.setInterfacePatternInput(1, 1, self.database.address, 1, 1)
+
+    local patternAfter = self.inputMeInterfaceProxy.getInterfacePattern(1)
+    local outputCountAfter = 0
+    local inputCountAfter = 0
+    for _ in pairs((patternAfter or {}).outputs or {}) do outputCountAfter = outputCountAfter + 1 end
+    for _ in pairs((patternAfter or {}).inputs or {}) do inputCountAfter = inputCountAfter + 1 end
+    event.push("log_info", "clearPattern: after set - outputs="..outputCountAfter.." inputs="..inputCountAfter)
   end
 
   ---Encode fake pattern with the right plasmas
@@ -389,6 +402,8 @@ function heliofusionExoticizerController:new(
   ---@private
   function obj:encodePattern(outputs)
     local index = 1
+
+    event.push("log_info", "encodePattern: magmatterMode="..tostring(self.magmatterMode))
 
     -- In magmatter mode the plasma count is derived from the difference between
     -- the two special fluids. Pre-check both are present before iterating so we
@@ -402,6 +417,7 @@ function heliofusionExoticizerController:new(
         event.push("log_warning", "encodePattern: 'Tachyon Rich Temporal Fluid' not found in outputs")
         return false, 0
       end
+      event.push("log_info", "encodePattern: SpatialFluid="..tostring(outputs["Spatially Enlarged Fluid"].count).." TemporalFluid="..tostring(outputs["Tachyon Rich Temporal Fluid"].count))
     end
 
     for key, value in pairs(outputs) do
@@ -417,16 +433,20 @@ function heliofusionExoticizerController:new(
         count = value.count * (value.isLiquid == true and 1000 or 144)
       end
 
+      event.push("log_info", "encodePattern: slot="..index.." key="..tostring(key).." label="..tostring(value.label).." count="..tostring(count).." isLiquid="..tostring(value.isLiquid).." inPlasmaList="..tostring(self.plasmaList[value.label] ~= nil))
+
       if self.plasmaList[value.label] ~= nil then
         -- Signature: setInterfacePatternInput(slot, index, database_address, entry, size)
         self.inputMeInterfaceProxy.setInterfacePatternInput(1, index, self.database.address, self.plasmaList[value.label].databaseIndex, count)
       else
+        event.push("log_warning", "encodePattern: UNKNOWN label="..tostring(value.label).." - returning false at index "..index)
         return false, index - 1
       end
 
       index = index + 1
     end
 
+    event.push("log_info", "encodePattern: done, total slots written="..(index - 1))
     return true, index - 1
   end
 
