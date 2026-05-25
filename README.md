@@ -109,6 +109,22 @@ which are directed to the quadruple input hatch.
 
 > [!CAUTION]
 > To work properly, you need to put any liquid сraft template (which is pink) in the interface in input subnet.
+>
+> **The template MUST be a pink "Fluid Encoded Pattern" (`ae2fc:fluid_encoded_pattern`),
+> encoded in an AE2FC Fluid Pattern Encoder or a Fluid Pattern Terminal.**
+>
+> Since recent GTNH daily releases, the regular Pattern Terminal now produces an
+> **"Encoded Ultimate Pattern"** by default. AE2FluidCraft-Rework's OpenComputers
+> driver rejects Ultimate Patterns (and regular Encoded Patterns), so the program
+> cannot modify them and will fail with `Not Fluid Encoded pattern!` from the OC
+> adapter, or — starting with this version — with an explicit error message
+> telling you to replace the pattern.
+>
+> If your terminal only outputs Ultimate Patterns, use the AE2FC **Fluid Pattern
+> Encoder** block (or the Fluid Pattern Terminal) to encode a placeholder pink
+> pattern, then drop it into the interface. The program will rewrite its
+> contents every cycle — the recipe inside the placeholder pattern does not
+> matter.
 
 The idea is that the program looks at what plasmas the machine wants and encodes a fake 
 recipe with the right plasmas and in the right quantity, then orders this template. 
